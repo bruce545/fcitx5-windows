@@ -31,6 +31,7 @@
 #include <winreg.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -41,6 +42,7 @@
 #include <sstream>
 #include <streambuf>
 #include <string>
+#include <thread>
 
 namespace fcitx {
 
@@ -1527,12 +1529,26 @@ bool Fcitx5ImeEngine::reloadPinyinConfig() {
     if (!instancePtr()) {
         return false;
     }
-    ScopedDllDirectory scopedDllDirectory(imeBinDir());
-    instancePtr()->reloadAddonConfig("pinyin");
-    flushLibuvLoopForIme(instancePtr()->eventLoop());
-    if (ic_) {
-        syncUiFromIc();
+    if (pipeSharedHost_) {
+        // Pipe session: caller expects a synchronous response; the pipe
+        // server's handleRequest now offloads the heavy reload to a
+        // background thread so we can just do the work directly here.
+        ScopedDllDirectory scopedDllDirectory(imeBinDir());
+        instancePtr()->reloadAddonConfig("pinyin");
+        flushLibuvLoopForIme(instancePtr()->eventLoop());
+        if (ic_) {
+            syncUiFromIc();
+        }
+        return true;
     }
+    // Direct mode: offload to background thread to avoid freezing the
+    // host process. The flush+sync will trigger on the next key event.
+    auto *inst = instancePtr();
+    auto binDir = imeBinDir();
+    std::thread([inst, binDir]() {
+        ScopedDllDirectory scopedDllDirectory(binDir);
+        inst->reloadAddonConfig("pinyin");
+    }).detach();
     return true;
 }
 
@@ -1540,12 +1556,23 @@ bool Fcitx5ImeEngine::reloadRimeAddonConfig() {
     if (!instancePtr()) {
         return false;
     }
-    ScopedDllDirectory scopedDllDirectory(imeBinDir());
-    instancePtr()->reloadAddonConfig("rime");
-    flushLibuvLoopForIme(instancePtr()->eventLoop());
-    if (ic_) {
-        syncUiFromIc();
+    if (pipeSharedHost_) {
+        // Pipe session: same as reloadPinyinConfig.
+        ScopedDllDirectory scopedDllDirectory(imeBinDir());
+        instancePtr()->reloadAddonConfig("rime");
+        flushLibuvLoopForIme(instancePtr()->eventLoop());
+        if (ic_) {
+            syncUiFromIc();
+        }
+        return true;
     }
+    // Direct mode: offload to background thread.
+    auto *inst = instancePtr();
+    auto binDir = imeBinDir();
+    std::thread([inst, binDir]() {
+        ScopedDllDirectory scopedDllDirectory(binDir);
+        inst->reloadAddonConfig("rime");
+    }).detach();
     return true;
 }
 

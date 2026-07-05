@@ -829,10 +829,26 @@ static void CALLBACK rimeDeployWaitCallback(PVOID lpParameter,
     }
 
     auto &data = it->second;
-    DWORD exitCode = 0;
-    const BOOL gotExitCode = GetExitCodeProcess(data->hProcess, &exitCode);
     const HWND trayHwnd = data->trayHwnd;
-    const BOOL deployOk = (gotExitCode && exitCode == 0) ? TRUE : FALSE;
+
+    if (TimerOrWaitFired) {
+        // 部署超时，强制终止进程
+        TerminateProcess(data->hProcess, 1);
+        if (trayHwnd && IsWindow(trayHwnd)) {
+            PostMessageW(trayHwnd, kShellTrayRimeDeployDoneMsg,
+                         static_cast<WPARAM>(FALSE),
+                         static_cast<LPARAM>(0xFFFFFFFF));
+        }
+    } else {
+        DWORD exitCode = 0;
+        const BOOL gotExitCode = GetExitCodeProcess(data->hProcess, &exitCode);
+        const BOOL deployOk = (gotExitCode && exitCode == 0) ? TRUE : FALSE;
+        if (trayHwnd && IsWindow(trayHwnd)) {
+            PostMessageW(trayHwnd, kShellTrayRimeDeployDoneMsg,
+                         static_cast<WPARAM>(deployOk),
+                         static_cast<LPARAM>(exitCode));
+        }
+    }
 
     if (data->hWaitHandle) {
         UnregisterWait(data->hWaitHandle);
@@ -840,12 +856,6 @@ static void CALLBACK rimeDeployWaitCallback(PVOID lpParameter,
     CloseHandle(data->hThread);
     CloseHandle(data->hProcess);
     g_rimeDeployMonitors.erase(it);
-
-    if (trayHwnd && IsWindow(trayHwnd)) {
-        PostMessageW(trayHwnd, kShellTrayRimeDeployDoneMsg,
-                     static_cast<WPARAM>(deployOk),
-                     static_cast<LPARAM>(exitCode));
-    }
 }
 
 bool launchRimeDeployWithNotification(HWND trayHwnd) {
@@ -965,10 +975,10 @@ bool launchRimeDeployWithNotification(HWND trayHwnd) {
         HANDLE hProcessForKey = pi.hProcess;
         g_rimeDeployMonitors[hProcessForKey] = std::move(monitorData);
 
-        // 注册线程池等待，进程结束时自动回调
+        // 注册线程池等待，60 秒超时后自动终止卡死的部署进程
         if (!RegisterWaitForSingleObject(
                 &g_rimeDeployMonitors[hProcessForKey]->hWaitHandle, pi.hProcess,
-                rimeDeployWaitCallback, hProcessForKey, INFINITE,
+                rimeDeployWaitCallback, hProcessForKey, 60000,
                 WT_EXECUTEONLYONCE)) {
             // 注册失败，直接关闭句柄
             CloseHandle(pi.hThread);
@@ -1991,6 +2001,10 @@ LRESULT CALLBACK Tsf::shellTrayHostWndProc(HWND hwnd, UINT msg, WPARAM wp,
             if (self->engine_) {
                 self->engine_->reloadRimeAddonConfig();
             }
+        } else if (exitCode == 0xFFFFFFFF) {
+            showTrayBalloon(hwnd, L"中州韵部署",
+                            L"部署超时，已自动终止。请检查方案配置是否正确。",
+                            NIIF_WARNING);
         } else {
             const std::wstring err =
                 L"部署失败 (退出码: " + std::to_wstring(exitCode) + L")";
