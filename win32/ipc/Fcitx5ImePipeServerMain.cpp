@@ -202,9 +202,8 @@ std::vector<std::uint8_t> handleRequest(ImeEngine *eng, Instance *inst,
             return fcitx::imeIpcEncodeErrorResponse(1);
         }
         if (inst) {
-            std::thread([inst]() {
-                inst->reloadAddonConfig("pinyin");
-            }).detach();
+            std::thread t1([inst]() { inst->reloadAddonConfig("pinyin"); });
+            t1.detach();
         }
         break;
     case ImeIpcOpcode::ReloadRimeConfig:
@@ -212,9 +211,8 @@ std::vector<std::uint8_t> handleRequest(ImeEngine *eng, Instance *inst,
             return fcitx::imeIpcEncodeErrorResponse(1);
         }
         if (inst) {
-            std::thread([inst]() {
-                inst->reloadAddonConfig("rime");
-            }).detach();
+            std::thread t2([inst]() { inst->reloadAddonConfig("rime"); });
+            t2.detach();
         }
         break;
     case ImeIpcOpcode::InvokeInputMethodSubConfig: {

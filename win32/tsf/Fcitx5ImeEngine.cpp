@@ -31,7 +31,6 @@
 #include <winreg.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -1545,10 +1544,11 @@ bool Fcitx5ImeEngine::reloadPinyinConfig() {
     // host process. The flush+sync will trigger on the next key event.
     auto *inst = instancePtr();
     auto binDir = imeBinDir();
-    std::thread([inst, binDir]() {
+    std::thread t1([inst, binDir]() {
         ScopedDllDirectory scopedDllDirectory(binDir);
         inst->reloadAddonConfig("pinyin");
-    }).detach();
+    });
+    t1.detach();
     return true;
 }
 
@@ -1569,10 +1569,11 @@ bool Fcitx5ImeEngine::reloadRimeAddonConfig() {
     // Direct mode: offload to background thread.
     auto *inst = instancePtr();
     auto binDir = imeBinDir();
-    std::thread([inst, binDir]() {
+    std::thread t2([inst, binDir]() {
         ScopedDllDirectory scopedDllDirectory(binDir);
         inst->reloadAddonConfig("rime");
-    }).detach();
+    });
+    t2.detach();
     return true;
 }
 
