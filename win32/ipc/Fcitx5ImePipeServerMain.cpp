@@ -11,14 +11,12 @@
 #include <cstring>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace {
 
 using fcitx::ImeEngine;
 using fcitx::ImeIpcOpcode;
-using fcitx::Instance;
 
 bool eatU32(const std::uint8_t *&p, const std::uint8_t *e, std::uint32_t *o) {
     if (static_cast<std::size_t>(e - p) < 4) {
@@ -53,8 +51,7 @@ bool eatUtf8(const std::uint8_t *&p, const std::uint8_t *e, std::string *s) {
     return true;
 }
 
-std::vector<std::uint8_t> handleRequest(ImeEngine *eng, Instance *inst,
-                                        ImeIpcOpcode op,
+std::vector<std::uint8_t> handleRequest(ImeEngine *eng, ImeIpcOpcode op,
                                         const std::uint8_t *body,
                                         std::size_t bodySize) {
     const std::uint8_t *p = body;
@@ -201,19 +198,13 @@ std::vector<std::uint8_t> handleRequest(ImeEngine *eng, Instance *inst,
         if (p != end) {
             return fcitx::imeIpcEncodeErrorResponse(1);
         }
-        if (inst) {
-            std::thread t1([inst]() { inst->reloadAddonConfig("pinyin"); });
-            t1.detach();
-        }
+        eng->reloadPinyinConfig();
         break;
     case ImeIpcOpcode::ReloadRimeConfig:
         if (p != end) {
             return fcitx::imeIpcEncodeErrorResponse(1);
         }
-        if (inst) {
-            std::thread t2([inst]() { inst->reloadAddonConfig("rime"); });
-            t2.detach();
-        }
+        eng->reloadRimeAddonConfig();
         break;
     case ImeIpcOpcode::InvokeInputMethodSubConfig: {
         std::string a, b;
@@ -268,7 +259,6 @@ void serveLoop(fcitx::Fcitx5ImePipeShared *shared) {
             continue;
         }
         ImeEngine *eng = session.get();
-        Instance *inst = shared->instance();
         for (;;) {
             fcitx::ImeIpcFrameHeader qh = {};
             if (!fcitx::imeIpcReadAll(h, &qh, sizeof(qh))) {
@@ -286,7 +276,7 @@ void serveLoop(fcitx::Fcitx5ImePipeShared *shared) {
             }
             const auto opc = static_cast<ImeIpcOpcode>(qh.opcodeOrStatus);
             std::vector<std::uint8_t> resp =
-                handleRequest(eng, inst, opc, body.data(), body.size());
+                handleRequest(eng, opc, body.data(), body.size());
             if (!fcitx::imeIpcWriteAll(h, resp.data(), resp.size())) {
                 break;
             }

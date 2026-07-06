@@ -31,6 +31,7 @@
 #include <winreg.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -1528,27 +1529,30 @@ bool Fcitx5ImeEngine::reloadPinyinConfig() {
     if (!instancePtr()) {
         return false;
     }
-    if (pipeSharedHost_) {
-        // Pipe session: caller expects a synchronous response; the pipe
-        // server's handleRequest now offloads the heavy reload to a
-        // background thread so we can just do the work directly here.
-        ScopedDllDirectory scopedDllDirectory(imeBinDir());
-        instancePtr()->reloadAddonConfig("pinyin");
-        flushLibuvLoopForIme(instancePtr()->eventLoop());
-        if (ic_) {
-            syncUiFromIc();
-        }
-        return true;
-    }
-    // Direct mode: offload to background thread to avoid freezing the
-    // host process. The flush+sync will trigger on the next key event.
     auto *inst = instancePtr();
     auto binDir = imeBinDir();
-    std::thread t1([inst, binDir]() {
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto bg = std::thread([inst, binDir, done]() {
         ScopedDllDirectory scopedDllDirectory(binDir);
         inst->reloadAddonConfig("pinyin");
+        done->store(true);
     });
-    t1.detach();
+    bg.detach();
+    ULONGLONG deadline = GetTickCount64() + 30000;
+    while (GetTickCount64() < deadline) {
+        if (done->load()) {
+            break;
+        }
+        Sleep(100);
+    }
+    if (!done->load()) {
+        FCITX_WARN() << "reloadPinyinConfig timed out after 30s";
+        return false;
+    }
+    flushLibuvLoopForIme(instancePtr()->eventLoop());
+    if (ic_) {
+        syncUiFromIc();
+    }
     return true;
 }
 
@@ -1556,24 +1560,30 @@ bool Fcitx5ImeEngine::reloadRimeAddonConfig() {
     if (!instancePtr()) {
         return false;
     }
-    if (pipeSharedHost_) {
-        // Pipe session: same as reloadPinyinConfig.
-        ScopedDllDirectory scopedDllDirectory(imeBinDir());
-        instancePtr()->reloadAddonConfig("rime");
-        flushLibuvLoopForIme(instancePtr()->eventLoop());
-        if (ic_) {
-            syncUiFromIc();
-        }
-        return true;
-    }
-    // Direct mode: offload to background thread.
     auto *inst = instancePtr();
     auto binDir = imeBinDir();
-    std::thread t2([inst, binDir]() {
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto bg = std::thread([inst, binDir, done]() {
         ScopedDllDirectory scopedDllDirectory(binDir);
         inst->reloadAddonConfig("rime");
+        done->store(true);
     });
-    t2.detach();
+    bg.detach();
+    ULONGLONG deadline = GetTickCount64() + 30000;
+    while (GetTickCount64() < deadline) {
+        if (done->load()) {
+            break;
+        }
+        Sleep(100);
+    }
+    if (!done->load()) {
+        FCITX_WARN() << "reloadRimeAddonConfig timed out after 30s";
+        return false;
+    }
+    flushLibuvLoopForIme(instancePtr()->eventLoop());
+    if (ic_) {
+        syncUiFromIc();
+    }
     return true;
 }
 
