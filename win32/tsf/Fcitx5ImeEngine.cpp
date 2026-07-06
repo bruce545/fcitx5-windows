@@ -31,7 +31,6 @@
 #include <winreg.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -42,7 +41,6 @@
 #include <sstream>
 #include <streambuf>
 #include <string>
-#include <thread>
 
 namespace fcitx {
 
@@ -1463,7 +1461,12 @@ bool Fcitx5ImeEngine::activateProfileInputMethod(
         instancePtr()->reloadAddonConfig("pinyin");
         flushLibuvLoopForIme(instancePtr()->eventLoop());
     } else if (uniqueName == "rime" && inputMethodBefore != uniqueName) {
-        instancePtr()->reloadAddonConfig("rime");
+        if (rimeBuildDirExists()) {
+            instancePtr()->reloadAddonConfig("rime");
+        } else {
+            FCITX_INFO() << "Rime build directory not found, skipping addon "
+                            "reload. Please deploy Rime first.";
+        }
         flushLibuvLoopForIme(instancePtr()->eventLoop());
     }
     syncUiFromIc();
@@ -1525,30 +1528,28 @@ bool Fcitx5ImeEngine::activateTrayStatusAction(const std::string &uniqueName) {
     return true;
 }
 
+namespace {
+
+bool rimeBuildDirExists() {
+    wchar_t appData[MAX_PATH] = {};
+    if (SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appData) != S_OK) {
+        return false;
+    }
+    auto buildDir =
+        std::filesystem::path(appData) / L"Fcitx5" / L"rime" / L"build";
+    std::error_code ec;
+    return std::filesystem::exists(buildDir, ec) &&
+           !std::filesystem::is_empty(buildDir, ec);
+}
+
+} // namespace
+
 bool Fcitx5ImeEngine::reloadPinyinConfig() {
     if (!instancePtr()) {
         return false;
     }
-    auto *inst = instancePtr();
-    auto binDir = imeBinDir();
-    auto done = std::make_shared<std::atomic<bool>>(false);
-    auto bg = std::thread([inst, binDir, done]() {
-        ScopedDllDirectory scopedDllDirectory(binDir);
-        inst->reloadAddonConfig("pinyin");
-        done->store(true);
-    });
-    bg.detach();
-    ULONGLONG deadline = GetTickCount64() + 30000;
-    while (GetTickCount64() < deadline) {
-        if (done->load()) {
-            break;
-        }
-        Sleep(100);
-    }
-    if (!done->load()) {
-        FCITX_WARN() << "reloadPinyinConfig timed out after 30s";
-        return false;
-    }
+    ScopedDllDirectory scopedDllDirectory(imeBinDir());
+    instancePtr()->reloadAddonConfig("pinyin");
     flushLibuvLoopForIme(instancePtr()->eventLoop());
     if (ic_) {
         syncUiFromIc();
@@ -1560,26 +1561,8 @@ bool Fcitx5ImeEngine::reloadRimeAddonConfig() {
     if (!instancePtr()) {
         return false;
     }
-    auto *inst = instancePtr();
-    auto binDir = imeBinDir();
-    auto done = std::make_shared<std::atomic<bool>>(false);
-    auto bg = std::thread([inst, binDir, done]() {
-        ScopedDllDirectory scopedDllDirectory(binDir);
-        inst->reloadAddonConfig("rime");
-        done->store(true);
-    });
-    bg.detach();
-    ULONGLONG deadline = GetTickCount64() + 30000;
-    while (GetTickCount64() < deadline) {
-        if (done->load()) {
-            break;
-        }
-        Sleep(100);
-    }
-    if (!done->load()) {
-        FCITX_WARN() << "reloadRimeAddonConfig timed out after 30s";
-        return false;
-    }
+    ScopedDllDirectory scopedDllDirectory(imeBinDir());
+    instancePtr()->reloadAddonConfig("rime");
     flushLibuvLoopForIme(instancePtr()->eventLoop());
     if (ic_) {
         syncUiFromIc();
