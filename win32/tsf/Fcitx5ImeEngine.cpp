@@ -1363,6 +1363,8 @@ Fcitx5ImeEngine::profileInputMethods() const {
     return items;
 }
 
+static bool rimeBuildDirExists();
+
 bool Fcitx5ImeEngine::activateProfileInputMethod(
     const std::string &uniqueName) {
     if (!instancePtr() || !ic_) {
@@ -1528,9 +1530,7 @@ bool Fcitx5ImeEngine::activateTrayStatusAction(const std::string &uniqueName) {
     return true;
 }
 
-namespace {
-
-bool rimeBuildDirExists() {
+static bool rimeBuildDirExists() {
     wchar_t appData[MAX_PATH] = {};
     if (!GetEnvironmentVariableW(L"APPDATA", appData, MAX_PATH)) {
         return false;
@@ -1541,8 +1541,6 @@ bool rimeBuildDirExists() {
     return std::filesystem::exists(buildDir, ec) &&
            !std::filesystem::is_empty(buildDir, ec);
 }
-
-} // namespace
 
 bool Fcitx5ImeEngine::reloadPinyinConfig() {
     if (!instancePtr()) {
