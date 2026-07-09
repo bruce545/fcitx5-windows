@@ -1532,7 +1532,7 @@ namespace {
 
 bool rimeBuildDirExists() {
     wchar_t appData[MAX_PATH] = {};
-    if (SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appData) != S_OK) {
+    if (!GetEnvironmentVariableW(L"APPDATA", appData, MAX_PATH)) {
         return false;
     }
     auto buildDir =
